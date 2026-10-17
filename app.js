@@ -17,6 +17,10 @@ const PHOTO_MAX_EDGE = 1280; // 写真本体の長辺(px)
 const PHOTO_QUALITY = 0.8;
 const THUMB_MAX_EDGE = 200;  // サムネイルの長辺(px)
 const THUMB_QUALITY = 0.7;
+// テイスティングコメント（sheets.js の SHEETS を使う）
+//   wine.tasting = { sheet: "jyuken2026" | "wf2025", type: "white" | "red", picks: { 項目id: [用語, ...] } } か null
+const TYPES = [["white", "白"], ["red", "赤"]];
+const SHEET_PREF_KEY = "wine-log.sheet";
 
 // ---------- IndexedDB ----------
 let dbPromise = null;
@@ -164,6 +168,64 @@ function requestPersist() {
   try { navigator.storage && navigator.storage.persist && navigator.storage.persist().catch(() => {}); } catch (_) { /* noop */ }
 }
 
+// ---------- テイスティングコメント ----------
+const typeForColor = (c) => (c === "赤" ? "red" : "white");
+// 最後に使ったシートを次回の初期値にする（端末ごとの好み。消えても既定に戻るだけ）
+function preferredSheet() {
+  try { const k = localStorage.getItem(SHEET_PREF_KEY); if (SHEETS[k]) return k; } catch (_) { /* noop */ }
+  return DEFAULT_SHEET;
+}
+function rememberSheet(k) {
+  try { localStorage.setItem(SHEET_PREF_KEY, k); } catch (_) { /* noop */ }
+}
+const emptyTasting = (color) => ({ sheet: preferredSheet(), type: typeForColor(color), picks: {} });
+const tastingCount = (t) => (t && t.picks ? Object.values(t.picks).reduce((n, a) => n + (Array.isArray(a) ? a.length : 0), 0) : 0);
+const tastingSections = (t) => (t && SHEETS[t.sheet] ? SHEETS[t.sheet].vocab[t.type] || [] : []);
+// 選んだ語をシートの項目順に並べて返す（検索・一覧の要約用）
+const tastingTerms = (t) => {
+  if (!t || !t.picks) return [];
+  const secs = tastingSections(t);
+  const known = secs.flatMap((s) => t.picks[s.id] || []);
+  const rest = Object.entries(t.picks).filter(([id]) => !secs.some((s) => s.id === id)).flatMap(([, a]) => a);
+  return [...known, ...rest];
+};
+const typeLabel = (type) => (type === "red" ? "赤" : "白");
+// 読み込んだJSONの tasting を検査する。形が合わなければ null、用語は文字列だけ残す
+function sanitizeTasting(t) {
+  if (!t || typeof t !== "object" || !SHEETS[t.sheet] || !TYPES.some(([k]) => k === t.type)) return null;
+  const ids = new Set(SHEETS[t.sheet].vocab[t.type].map((s) => s.id));
+  const picks = {};
+  for (const [id, arr] of Object.entries(t.picks || {})) {
+    if (!ids.has(id) || !Array.isArray(arr)) continue;
+    const ok = [...new Set(arr.filter((x) => typeof x === "string" && x.length <= 100))];
+    if (ok.length) picks[id] = ok;
+  }
+  return Object.keys(picks).length ? { sheet: t.sheet, type: t.type, picks } : null;
+}
+// 項目ごとに番号を付けるシート（Wine-Flight）は、本番と同じ番号を用語の前に出す
+function termLabel(sheet, sec, term) {
+  const i = sec.terms.indexOf(term);
+  return sheet.numbered && i >= 0 ? `<span class="chip-no">${i + 1}</span>${esc(term)}` : esc(term);
+}
+// 詳細画面用の読み取り表示。選ばれた項目だけを外観・香り・味わい…の順に出す
+function renderTastingView(t) {
+  if (!tastingCount(t)) return "";
+  const sheet = SHEETS[t.sheet];
+  const groups = [];
+  for (const sec of tastingSections(t)) {
+    const picked = t.picks[sec.id] || [];
+    if (!picked.length) continue;
+    let g = groups.find((x) => x.name === sec.group);
+    if (!g) groups.push((g = { name: sec.group, rows: [] }));
+    g.rows.push(`<dt>${esc(sec.title.replace(/（.*）$/, ""))}</dt><dd>${picked.map((x) => `<span class="tv-term">${termLabel(sheet, sec, x)}</span>`).join("")}</dd>`);
+  }
+  return `
+    <section class="tasting-view">
+      <h3>テイスティングコメント <span class="tv-meta">${esc(sheet.short)}・${typeLabel(t.type)}</span></h3>
+      ${groups.map((g) => `<h4>${esc(g.name)}</h4><dl class="kv tv">${g.rows.join("")}</dl>`).join("")}
+    </section>`;
+}
+
 // ---------- 写真ビューア ----------
 function openViewer(src, caption) {
   if (!isImgData(src)) return;
@@ -190,12 +252,18 @@ function back() {
   render();
 }
 
+// 画面の描き替えは非同期（DBを読む）なので、素早く連続で操作すると古い描き替えが後から上書きしうる。
+// 番号を振って、最新でなくなった描き替えは捨てる
+let renderSeq = 0;
 async function render() {
+  const seq = ++renderSeq;
+  const stale = () => seq !== renderSeq;
   const main = $("#screen");
   const title = $("#header-title");
   const footer = $("#footer-bar");
   const bAdd = $("#btn-add"), bSave = $("#btn-save"), bCancel = $("#btn-cancel");
-  [bAdd, bSave, bCancel].forEach((b) => b.classList.add("hidden"));
+  const bTClear = $("#btn-t-clear"), bTDone = $("#btn-t-done");
+  [bAdd, bSave, bCancel, bTClear, bTDone].forEach((b) => b.classList.add("hidden"));
   footer.classList.remove("hidden");
   const isList = state.screen === "list";
   $("#btn-back").classList.toggle("hidden", isList);
@@ -206,14 +274,17 @@ async function render() {
   if (state.screen === "list") {
     title.textContent = "ワイン記録";
     state.wines = await dbAll();
+    if (stale()) return;
     main.innerHTML = renderList();
     bindList();
     bAdd.classList.remove("hidden");
   } else if (state.screen === "detail") {
     title.textContent = "詳細";
     const w = await dbGet(state.current);
+    if (stale()) return;
     if (!w) { toast("記録が見つかりません"); state.stack = []; go("list", { replace: true, current: null }); return; }
     const photos = (await photoGet(w.id)) || {};
+    if (stale()) return;
     main.innerHTML = renderDetail(w, photos);
     bindDetail(w, photos);
     footer.classList.add("hidden");
@@ -230,13 +301,24 @@ async function render() {
       }
     }
     state.wines = await dbAll();
+    if (stale()) return;
     main.innerHTML = renderForm(state.draft);
     bindForm();
     bSave.classList.remove("hidden");
     bCancel.classList.remove("hidden");
+  } else if (state.screen === "tasting") {
+    // 入力画面の下書き（state.draft.tasting）を直接編集する。戻れば入力画面にそのまま反映される
+    if (!state.draft) { state.stack = []; go("list", { replace: true, current: null }); return; }
+    if (!state.draft.tasting) state.draft.tasting = emptyTasting(state.draft.color);
+    title.textContent = "テイスティングコメント";
+    main.innerHTML = renderTasting(state.draft.tasting);
+    bindTasting(state.draft.tasting);
+    bTClear.classList.remove("hidden");
+    bTDone.classList.remove("hidden");
   } else if (state.screen === "settings") {
     title.textContent = "設定";
     state.wines = await dbAll();
+    if (stale()) return;
     main.innerHTML = renderSettings();
     bindSettings();
     footer.classList.add("hidden");
@@ -247,7 +329,7 @@ async function render() {
 function blank() {
   return {
     id: newId(), date: today(), name: "", color: "赤", country: "", region: "", producer: "",
-    grape: "", vintage: "", price: "", rating: 0, place: "", memo: "", thumb: "",
+    grape: "", vintage: "", price: "", rating: 0, place: "", memo: "", thumb: "", tasting: null,
     createdAt: Date.now(), updatedAt: Date.now(),
   };
 }
@@ -259,7 +341,7 @@ function filtered() {
   const list = state.wines.filter((w) => {
     if (color !== "すべて" && w.color !== color) return false;
     if (!kw) return true;
-    const hay = [w.name, w.country, w.region, w.producer, w.grape, w.vintage, w.place, w.memo].join(" ").toLowerCase();
+    const hay = [w.name, w.country, w.region, w.producer, w.grape, w.vintage, w.place, w.memo, ...tastingTerms(w.tasting)].join(" ").toLowerCase();
     return hay.includes(kw);
   });
   const by = {
@@ -281,7 +363,7 @@ function renderList() {
   const opt = (v, label) => `<option value="${v}" ${f.sort === v ? "selected" : ""}>${label}</option>`;
   return `
     <div class="search-bar">
-      <input id="q" type="search" placeholder="銘柄・産地・品種・メモで検索" value="${esc(f.q)}">
+      <input id="q" type="search" placeholder="銘柄・産地・品種・メモ・用語で検索" value="${esc(f.q)}">
       <select id="sort">${opt("date", "日付順")}${opt("rating", "評価順")}${opt("price", "価格順")}${opt("name", "名前順")}</select>
     </div>
     <div class="chips">${chips}</div>
@@ -307,6 +389,7 @@ function renderCard(w) {
         ${stars(w.rating)}
         <div>${esc(w.date)}</div>
         <div>${fmtPrice(w.price)}</div>
+        ${tastingCount(w.tasting) ? `<div class="has-tasting" title="テイスティングコメントあり">📝</div>` : ""}
       </div>
     </div>`;
 }
@@ -355,6 +438,7 @@ function renderDetail(w, photos) {
       <div>${stars(w.rating)}</div>
       ${photoHtml}
       <dl class="kv">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl>
+      ${renderTastingView(w.tasting)}
       <div class="btn-row">
         <button id="d-edit" class="btn-primary">編集する</button>
         <button id="d-copy" class="btn-secondary">同じワインを記録</button>
@@ -372,7 +456,8 @@ function bindDetail(w, photos) {
   $("#d-edit").addEventListener("click", () => { state.draft = null; go("form", { current: w.id }); });
   $("#d-copy").addEventListener("click", () => {
     // 同じワインならラベルも同じなので、写真も引き継ぐ（不要なら入力画面で消せる）
-    state.draft = { ...w, id: newId(), date: today(), rating: 0, memo: "", createdAt: Date.now(), updatedAt: Date.now() };
+    // テイスティングコメントはその日の印象なので引き継がない
+    state.draft = { ...w, id: newId(), date: today(), rating: 0, memo: "", tasting: null, createdAt: Date.now(), updatedAt: Date.now() };
     state.photos = { front: photos.front || null, back: photos.back || null };
     go("form", { current: null });
   });
@@ -439,7 +524,100 @@ function renderForm(d) {
         <div class="rating-input" id="rating">${rate}<button type="button" class="clear" data-rate="0">クリア</button></div>
       </div>
       <div class="field"><label>メモ</label><textarea name="memo" placeholder="香り・味わい・合わせた料理・また買うかなど">${esc(d.memo)}</textarea></div>
+      <div class="field"><label>テイスティングコメント</label>${renderTastingField(d.tasting)}</div>
     </form>`;
+}
+function renderTastingField(t) {
+  const n = tastingCount(t);
+  if (!n) return `<button type="button" id="f-tasting" class="btn-secondary btn-block">📝 用語シートで記録する</button>`;
+  const terms = tastingTerms(t);
+  const preview = terms.slice(0, 6).join("、") + (n > 6 ? " ほか" : "");
+  return `
+    <button type="button" id="f-tasting" class="tasting-summary">
+      <span class="ts-meta">${esc(SHEETS[t.sheet].short)}・${typeLabel(t.type)}・${n}語</span>
+      <span class="ts-terms">${esc(preview)}</span>
+      <span class="ts-edit">編集 ›</span>
+    </button>`;
+}
+
+// ---------- tasting（用語シート） ----------
+const countLabel = (n, pick) => `<span class="${n > pick ? "over" : n === pick ? "full" : ""}">${n} / ${pick}</span>`;
+function renderTasting(t) {
+  const sheet = SHEETS[t.sheet];
+  const sheetOpts = Object.values(SHEETS).map((s) => `<option value="${s.key}" ${s.key === t.sheet ? "selected" : ""}>${esc(s.label)}</option>`).join("");
+  const typeSeg = TYPES.map(([k, l]) => `<button type="button" class="${t.type === k ? "on" : ""}" data-type="${k}">${l}</button>`).join("");
+  let body = "", lastGroup = null;
+  for (const sec of tastingSections(t)) {
+    if (sec.group !== lastGroup) {
+      if (lastGroup) body += `</div>`;
+      body += `<div class="t-group"><h3>${esc(sec.group)}</h3>`;
+      lastGroup = sec.group;
+    }
+    const picked = t.picks[sec.id] || [];
+    const chips = sec.terms.map((term, i) =>
+      `<button type="button" class="chip t-term ${picked.includes(term) ? "on" : ""}" data-i="${i}">${termLabel(sheet, sec, term)}</button>`).join("");
+    body += `
+      <div class="t-sec" data-sec="${sec.id}">
+        <div class="t-sec-head"><span>${esc(sec.title)}</span><span class="t-count">${countLabel(picked.length, sec.pick)}</span></div>
+        <div class="t-terms">${chips}</div>
+      </div>`;
+  }
+  if (lastGroup) body += `</div>`;
+  return `
+    <div class="form t-top">
+      <div class="field"><label>用語シート</label><select id="t-sheet">${sheetOpts}</select></div>
+      <div class="field"><label>タイプ</label><div class="seg" id="t-type">${typeSeg}</div></div>
+      <p class="note">右の数字は「選んだ数 / 目安」。目安を超えても記録できます。結論の欄には自分の推定を選んでください。</p>
+    </div>
+    ${body}`;
+}
+function bindTasting(t) {
+  const sel = $("#t-sheet");
+  sel.addEventListener("change", () => switchTasting(t, sel.value, t.type, sel));
+  $("#t-type").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => switchTasting(t, t.sheet, b.dataset.type)));
+  const secs = tastingSections(t);
+  document.querySelectorAll(".t-sec").forEach((secEl) => {
+    const sec = secs.find((s) => s.id === secEl.dataset.sec);
+    secEl.querySelectorAll(".t-term").forEach((b) => b.addEventListener("click", () => {
+      const term = sec.terms[Number(b.dataset.i)];
+      const arr = t.picks[sec.id] || [];
+      const at = arr.indexOf(term);
+      if (at >= 0) arr.splice(at, 1);
+      else arr.push(term);
+      // 表示はシートの並び順にそろえる（シートに無い古い語は末尾）
+      const order = (x) => { const i = sec.terms.indexOf(x); return i < 0 ? 1e9 : i; };
+      arr.sort((a, c) => order(a) - order(c));
+      if (arr.length) t.picks[sec.id] = arr;
+      else delete t.picks[sec.id];
+      b.classList.toggle("on", at < 0);
+      secEl.querySelector(".t-count").innerHTML = countLabel(arr.length, sec.pick);
+    }));
+  });
+}
+// シートやタイプを替えると項目と用語が変わるので、選んだ語はクリアする
+function switchTasting(t, sheet, type, selectEl) {
+  if (sheet === t.sheet && type === t.type) return;
+  if (tastingCount(t) && !confirm("シートかタイプを変えると、選んだ用語はクリアされます。よろしいですか？")) {
+    if (selectEl) selectEl.value = t.sheet;
+    return;
+  }
+  t.sheet = sheet;
+  t.type = type;
+  t.picks = {};
+  rememberSheet(sheet);
+  rerenderTasting();
+}
+function rerenderTasting() {
+  const t = state.draft.tasting;
+  $("#screen").innerHTML = renderTasting(t);
+  bindTasting(t);
+}
+function clearTasting() {
+  const t = state.draft && state.draft.tasting;
+  if (!t || !tastingCount(t)) return;
+  if (!confirm("選んだ用語をすべてクリアします。よろしいですか？")) return;
+  t.picks = {};
+  rerenderTasting();
 }
 function readForm() {
   const f = $("#form");
@@ -483,6 +661,7 @@ function bindForm() {
   $("#form").addEventListener("submit", (e) => { e.preventDefault(); save(); });
   $("#photo-input").addEventListener("change", onPhotoChosen);
   bindPhotoSlots();
+  $("#f-tasting").addEventListener("click", () => { readForm(); go("tasting"); });
   $("#seg-color").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
     d.color = b.dataset.color;
     $("#seg-color").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
@@ -505,6 +684,8 @@ async function save() {
   try {
     if (!d.date) d.date = today();
     d.updatedAt = Date.now();
+    if (tastingCount(d.tasting)) rememberSheet(d.tasting.sheet);
+    else d.tasting = null;
     const photos = { front: isImgData(state.photos.front) ? state.photos.front : null, back: isImgData(state.photos.back) ? state.photos.back : null };
     const cover = photos.front || photos.back;
     d.thumb = cover ? await makeThumb(cover) : "";
@@ -554,6 +735,7 @@ function renderSettings() {
         <div class="stat"><div class="v">${spent ? "¥" + spent.toLocaleString() : "-"}</div><div class="k">合計金額</div></div>
         ${byColor.map(([col, k]) => `<div class="stat"><div class="v">${k}</div><div class="k">${col}</div></div>`).join("")}
         <div class="stat"><div class="v">${withPhoto}</div><div class="k">写真あり</div></div>
+        <div class="stat"><div class="v">${ws.filter((w) => tastingCount(w.tasting)).length}</div><div class="k">コメントあり</div></div>
       </div>
       <p class="note" id="s-usage"></p>
     </div>
@@ -625,6 +807,7 @@ async function importJSON(e) {
       .map((w) => {
         const r = { ...blank(), ...w, id: typeof w.id === "string" && w.id ? w.id : newId() };
         if (!isImgData(r.thumb)) r.thumb = "";
+        r.tasting = sanitizeTasting(r.tasting);
         return r;
       });
     const photoRecs = (Array.isArray(data.photos) ? data.photos : [])
@@ -648,6 +831,8 @@ $("#btn-settings").addEventListener("click", () => go("settings"));
 $("#btn-add").addEventListener("click", () => { state.draft = null; go("form", { current: null }); });
 $("#btn-save").addEventListener("click", save);
 $("#btn-cancel").addEventListener("click", cancelForm);
+$("#btn-t-clear").addEventListener("click", clearTasting);
+$("#btn-t-done").addEventListener("click", back);
 $("#viewer").addEventListener("click", closeViewer);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeViewer(); });
 

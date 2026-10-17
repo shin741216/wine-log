@@ -186,6 +186,39 @@ main { padding: 14px 14px 120px; max-width: 640px; margin: 0 auto; }
 .rank li:last-child { border-bottom: none; }
 .version { font-size: .75rem; color: var(--muted); text-align: center; margin-top: 10px; }
 
+/* ---------- tasting ---------- */
+.btn-block { width: 100%; }
+.tasting-summary {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; width: 100%; text-align: left;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: #fff; cursor: pointer; color: var(--text); font-family: inherit;
+}
+.tasting-summary .ts-meta { font-size: .78rem; color: var(--muted); }
+.tasting-summary .ts-terms { grid-column: 1; font-size: .9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tasting-summary .ts-edit { grid-column: 2; grid-row: 1 / span 2; align-self: center; font-size: .85rem; color: var(--wine); }
+.t-top { margin-bottom: 12px; }
+.t-top .field { margin-bottom: 8px; }
+.t-group { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 12px 12px 4px; margin-bottom: 12px; }
+.t-group h3 { font-size: .95rem; color: var(--wine); margin-bottom: 8px; }
+.t-sec { margin-bottom: 12px; }
+.t-sec-head { display: flex; justify-content: space-between; gap: 8px; font-size: .85rem; font-weight: 600; margin-bottom: 6px; }
+.t-count { font-weight: 400; color: var(--muted); white-space: nowrap; }
+.t-count .full { color: var(--wine); font-weight: 600; }
+.t-count .over { color: var(--danger); font-weight: 600; }
+.t-terms { display: flex; flex-wrap: wrap; gap: 6px; }
+.t-term { font-size: .85rem; padding: 7px 11px; text-align: left; }
+.chip-no {
+  display: inline-block; min-width: 1.4em; margin-right: 4px; padding: 0 3px; border-radius: 4px;
+  background: rgba(92,26,46,.12); color: var(--wine); font-size: .72rem; text-align: center; font-weight: 600;
+}
+.chip.on .chip-no { background: rgba(255,255,255,.25); color: #fff; }
+.tasting-view { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+.tasting-view h3 { font-size: .95rem; color: var(--wine); margin-bottom: 6px; }
+.tasting-view .tv-meta { font-size: .75rem; color: var(--muted); font-weight: 400; margin-left: 4px; }
+.tasting-view h4 { font-size: .8rem; color: var(--muted); margin: 10px 0 4px; }
+.kv.tv { grid-template-columns: 6.5em minmax(0, 1fr); font-size: .9rem; }
+.tv-term { display: inline-block; background: var(--chip-bg); border-radius: 6px; padding: 1px 7px; margin: 0 4px 4px 0; font-size: .85rem; }
+.has-tasting { font-size: .85rem; }
+
 /* ---------- viewer ---------- */
 .viewer {
   position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.92);
