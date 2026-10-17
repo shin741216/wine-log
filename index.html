@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>ワイン記録</title>
+  <meta name="theme-color" content="#5c1a2e">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="ワイン記録">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-header">
+    <button id="btn-back" class="header-btn hidden" aria-label="戻る">◀</button>
+    <span id="header-spacer-l" class="header-spacer"></span>
+    <h1 id="header-title">ワイン記録</h1>
+    <button id="btn-settings" class="header-btn" aria-label="設定">⚙</button>
+    <span id="header-spacer-r" class="header-spacer hidden"></span>
+  </header>
+
+  <main id="screen"></main>
+
+  <footer id="footer-bar" class="footer-bar hidden">
+    <button id="btn-cancel" class="btn-secondary hidden">キャンセル</button>
+    <button id="btn-add" class="btn-primary hidden">＋ 記録する</button>
+    <button id="btn-save" class="btn-primary hidden">保存する</button>
+  </footer>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="version.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
