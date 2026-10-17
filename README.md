@@ -5,19 +5,22 @@
 
 iPhone / iPad のSafariで開き「共有 → ホーム画面に追加」するとアプリとして使えます。
 
-## 機能（v0.1.0）
+## 機能（v0.2.0）
 
 - 記録の追加・編集・削除（銘柄・色・日付・ヴィンテージ・生産者・生産国・地域・品種・価格・場所・5段階評価・メモ）
-- 詳細画面の「同じワインを記録」でコピーして新規作成（日付は今日、評価とメモは空）
+- ラベル写真を表・裏の2枚まで。撮影でもフォトライブラリからでも選べ、長辺1280pxのJPEGに縮小して保存。一覧にサムネイル、詳細に2枚を表示し、タップで拡大
+- 詳細画面の「同じワインを記録」でコピーして新規作成（日付は今日、評価とメモは空、写真は引き継ぐ）
 - 一覧の検索（全項目の部分一致）、色チップで絞り込み、日付／評価／価格／名前で並べ替え
 - 入力欄は過去の記録から候補を出す（生産者・生産国・地域・品種・場所）
-- 設定画面: 集計（記録数・平均評価・合計金額・色別・よく飲む品種／生産国）、JSON書き出し／読み込み、全削除
+- 設定画面: 集計（記録数・平均評価・合計金額・色別・よく飲む品種／生産国）、JSON書き出し（写真を含めるか選べる）／読み込み、全削除、使用容量の表示
 
 ## データ
 
-- 保存先は端末のブラウザ内の IndexedDB（DB名 `wine-log`、ストア `wines`、キー `id`）。サーバーには送らない
-- 書き出したJSONは `{ app, version, exportedAt, wines: [...] }`。読み込みは同じ `id` を上書きし、それ以外は追加
-- 1件のレコード: `id, date, name, color, country, region, producer, grape, vintage, price, rating(0-5), place, memo, createdAt, updatedAt`
+- 保存先は端末のブラウザ内の IndexedDB（DB名 `wine-log`、版2）。サーバーには送らない
+  - `wines`: 記録（キー `id`）。一覧用のサムネイル `thumb`（長辺200pxのJPEG data URL）も持つ
+  - `photos`: 写真本体 `{ id, front, back }`（キーはワインの `id`、各面はJPEG data URLか null）。一覧を軽く保つため分けている
+- 書き出したJSONは `{ app, version, exportedAt, wines: [...], photos: [...] }`（写真なしで書き出すと `photos` と `thumb` を省く）。読み込みは同じ `id` を上書きし、それ以外は追加。画像は `data:image/(jpeg|png|webp);base64,` 形式のものだけ受け付ける
+- 1件のレコード: `id, date, name, color, country, region, producer, grape, vintage, price, rating(0-5), place, memo, thumb, createdAt, updatedAt`
 
 ## ファイル
 
@@ -36,7 +39,7 @@ iPhone / iPad のSafariで開き「共有 → ホーム画面に追加」する�
 
 ## 今後の候補
 
-1. ラベル写真（カメラ → 縮小 → IndexedDB）
+1. （済）ラベル写真 表・裏（v0.2.0）
 2. テイスティング用語シート（wine-tasting-trainer の `VOCAB` を流用）
 3. 月別本数などの集計グラフ
 4. （済）GitHub Pages で配布: https://shin741216.github.io/wine-log/
