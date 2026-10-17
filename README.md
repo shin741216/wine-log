@@ -1,6 +1,8 @@
 # ワイン記録（wine-log）
 
 飲んだワインを記録する個人用PWAです。素のHTML/CSS/JS、ビルドなし。
+公開URL: https://shin741216.github.io/wine-log/
+
 iPhone / iPad のSafariで開き「共有 → ホーム画面に追加」するとアプリとして使えます。
 
 ## 機能（v0.1.0）
@@ -37,4 +39,4 @@ iPhone / iPad のSafariで開き「共有 → ホーム画面に追加」する�
 1. ラベル写真（カメラ → 縮小 → IndexedDB）
 2. テイスティング用語シート（wine-tasting-trainer の `VOCAB` を流用）
 3. 月別本数などの集計グラフ
-4. GitHub Pages で配布
+4. （済）GitHub Pages で配布: https://shin741216.github.io/wine-log/
